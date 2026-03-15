@@ -29,6 +29,7 @@ export class Game {
   seed: number;
   carKey = 'wagon';
   running = false;
+  onMenu: (() => void) | null = null;
   private lastTime = 0;
   private respawnTimer = 0;
   private airTime = 0;
@@ -58,6 +59,41 @@ export class Game {
     // Collision detection
     Matter.Events.on(this.engine, 'collisionStart', (e) => this.onCollision(e));
     Matter.Events.on(this.engine, 'collisionActive', (e) => this.onCollisionActive(e));
+
+    // Click/tap handling for HUD buttons
+    const handleClick = (x: number, y: number) => {
+      if (!this.running) return;
+      const hb = this.hud;
+
+      // Menu button during gameplay
+      if (this.hitRect(x, y, hb.menuButtonRect)) {
+        this.goToMenu();
+        return;
+      }
+
+      // Game over buttons
+      if (this.state.gameOver) {
+        if (this.hitRect(x, y, hb.restartButtonRect)) {
+          this.state.gameOver = false;
+          this.state.dead = false;
+          this.reset();
+          return;
+        }
+        if (this.hitRect(x, y, hb.menuButtonGameOverRect)) {
+          this.goToMenu();
+          return;
+        }
+      }
+    };
+
+    canvas.addEventListener('click', (e) => handleClick(e.offsetX, e.offsetY));
+    canvas.addEventListener('touchend', (e) => {
+      if (e.changedTouches.length > 0) {
+        const rect = canvas.getBoundingClientRect();
+        const t = e.changedTouches[0];
+        handleClick(t.clientX - rect.left, t.clientY - rect.top);
+      }
+    });
   }
 
   resize() {
@@ -74,6 +110,13 @@ export class Game {
     this.running = true;
     this.lastTime = performance.now();
     this.loop(this.lastTime);
+  }
+
+  goToMenu() {
+    this.running = false;
+    Matter.World.clear(this.engine.world, false);
+    Matter.Engine.clear(this.engine);
+    if (this.onMenu) this.onMenu();
   }
 
   reset() {
@@ -131,8 +174,11 @@ export class Game {
 
   private update(dt: number) {
     if (this.state.gameOver) {
-      // Wait for restart input
       const input = this.input.getState();
+      if (input.menu) {
+        this.goToMenu();
+        return;
+      }
       if (input.toggleEngine || input.gas) {
         this.state.gameOver = false;
         this.state.dead = false;
@@ -157,6 +203,10 @@ export class Game {
     }
 
     const input = this.input.getState();
+    if (input.menu) {
+      this.goToMenu();
+      return;
+    }
     this.recorder.record(input);
 
     // Apply car input
@@ -407,5 +457,9 @@ export class Game {
     // Snap camera
     this.camera.x = cp.x - this.camera.width * 0.35;
     this.camera.y = cp.y - 80 - this.camera.height * 0.5;
+  }
+
+  private hitRect(x: number, y: number, r: { x: number; y: number; w: number; h: number }): boolean {
+    return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
   }
 }

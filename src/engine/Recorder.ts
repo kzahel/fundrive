@@ -45,7 +45,7 @@ export class Replayer {
   private tick = 0;
   private currentState: InputState = {
     gas: false, brake: false, leanForward: false,
-    leanBack: false, boost: false, toggleEngine: false, reset: false,
+    leanBack: false, boost: false, toggleEngine: false, reset: false, menu: false,
   };
 
   constructor(frames: InputFrame[]) {

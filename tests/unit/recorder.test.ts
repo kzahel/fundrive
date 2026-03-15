@@ -4,7 +4,7 @@ import type { InputState } from '../../src/engine/InputManager';
 
 const emptyInput: InputState = {
   gas: false, brake: false, leanForward: false,
-  leanBack: false, boost: false, toggleEngine: false, reset: false,
+  leanBack: false, boost: false, toggleEngine: false, reset: false, menu: false,
 };
 
 describe('Recorder', () => {

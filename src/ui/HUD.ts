@@ -2,6 +2,12 @@ import { MAX_FUEL } from '../utils/constants';
 import type { GameState } from '../gameplay/GameState';
 
 export class HUD {
+  // Menu button hit area (screen coords)
+  menuButtonRect = { x: 0, y: 0, w: 0, h: 0 };
+  // Game over button hit areas
+  restartButtonRect = { x: 0, y: 0, w: 0, h: 0 };
+  menuButtonGameOverRect = { x: 0, y: 0, w: 0, h: 0 };
+
   draw(ctx: CanvasRenderingContext2D, state: GameState, screenW: number, _screenH: number) {
     ctx.save();
 
@@ -63,6 +69,28 @@ export class HUD {
     ctx.strokeText(scoreText, 20, 90);
     ctx.fillText(scoreText, 20, 90);
 
+    // Menu button (top-right area, below coins)
+    const mbW = 60;
+    const mbH = 28;
+    const mbX = screenW - mbW - 10;
+    const mbY = 48;
+    this.menuButtonRect = { x: mbX, y: mbY, w: mbW, h: mbH };
+
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    this.roundRect(ctx, mbX, mbY, mbW, mbH, 6);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 1;
+    this.roundRect(ctx, mbX, mbY, mbW, mbH, 6);
+    ctx.stroke();
+
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('MENU', mbX + mbW / 2, mbY + mbH / 2);
+    ctx.textBaseline = 'alphabetic';
+
     ctx.restore();
   }
 
@@ -89,16 +117,49 @@ export class HUD {
     ctx.fillStyle = '#FFF';
     ctx.font = 'bold 48px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('GAME OVER', screenW / 2, screenH / 2 - 40);
+    ctx.fillText('GAME OVER', screenW / 2, screenH / 2 - 60);
 
     ctx.font = 'bold 24px sans-serif';
-    ctx.fillText(`Distance: ${state.distance}m`, screenW / 2, screenH / 2 + 10);
-    ctx.fillText(`Coins: ${state.coins}`, screenW / 2, screenH / 2 + 40);
-    ctx.fillText(`Score: ${state.score}`, screenW / 2, screenH / 2 + 70);
+    ctx.fillText(`Distance: ${state.distance}m`, screenW / 2, screenH / 2 - 10);
+    ctx.fillText(`Coins: ${state.coins}`, screenW / 2, screenH / 2 + 20);
+    ctx.fillText(`Score: ${state.score}`, screenW / 2, screenH / 2 + 50);
 
-    ctx.font = '18px sans-serif';
-    ctx.fillStyle = '#CCC';
-    ctx.fillText('Press SPACE or tap to restart', screenW / 2, screenH / 2 + 110);
+    // Restart button
+    const btnW = 160;
+    const btnH = 44;
+    const restartX = screenW / 2 - btnW - 10;
+    const restartY = screenH / 2 + 75;
+    this.restartButtonRect = { x: restartX, y: restartY, w: btnW, h: btnH };
+
+    ctx.fillStyle = '#4CAF50';
+    this.roundRect(ctx, restartX, restartY, btnW, btnH, 8);
+    ctx.fill();
+    ctx.strokeStyle = '#388E3C';
+    ctx.lineWidth = 2;
+    this.roundRect(ctx, restartX, restartY, btnW, btnH, 8);
+    ctx.stroke();
+
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('PLAY AGAIN', restartX + btnW / 2, restartY + btnH / 2);
+
+    // Menu button
+    const menuX = screenW / 2 + 10;
+    const menuY = restartY;
+    this.menuButtonGameOverRect = { x: menuX, y: menuY, w: btnW, h: btnH };
+
+    ctx.fillStyle = '#666';
+    this.roundRect(ctx, menuX, menuY, btnW, btnH, 8);
+    ctx.fill();
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 2;
+    this.roundRect(ctx, menuX, menuY, btnW, btnH, 8);
+    ctx.stroke();
+
+    ctx.fillStyle = '#FFF';
+    ctx.fillText('MENU', menuX + btnW / 2, menuY + btnH / 2);
+    ctx.textBaseline = 'alphabetic';
 
     ctx.restore();
   }
@@ -116,5 +177,22 @@ export class HUD {
     ctx.strokeText('CRASHED! Respawning...', screenW / 2, screenH / 2);
     ctx.fillText('CRASHED! Respawning...', screenW / 2, screenH / 2);
     ctx.restore();
+  }
+
+  private roundRect(
+    ctx: CanvasRenderingContext2D,
+    x: number, y: number, w: number, h: number, r: number
+  ) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
   }
 }

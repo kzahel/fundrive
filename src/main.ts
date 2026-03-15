@@ -11,9 +11,7 @@ const game = new Game(canvas);
 // Touch controls
 new TouchControls(ui, game.input);
 
-// Car selection screen
-new CarSelect(ui, (carKey) => {
-  // Request fullscreen + landscape on game start (requires user gesture)
+function enterFullscreenLandscape() {
   const el = document.documentElement;
   const goFullscreen = el.requestFullscreen
     ? el.requestFullscreen()
@@ -22,11 +20,29 @@ new CarSelect(ui, (carKey) => {
       : Promise.resolve();
 
   Promise.resolve(goFullscreen).then(() => {
-    // Lock to landscape if supported (only works in fullscreen on mobile)
     if (screen.orientation && (screen.orientation as any).lock) {
       (screen.orientation as any).lock('landscape').catch(() => {});
     }
   }).catch(() => {});
+}
 
+function exitFullscreen() {
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+
+// Car selection screen
+const carSelect = new CarSelect(ui, (carKey) => {
+  enterFullscreenLandscape();
   game.startGame(carKey);
 });
+
+// Wire up menu return
+game.onMenu = () => {
+  exitFullscreen();
+  carSelect.show();
+  // Clear the canvas so the car select is visible
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+};
