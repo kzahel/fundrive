@@ -9,10 +9,8 @@ export class Car {
   rearWheel: Matter.Body;
   frontSpring: Matter.Constraint;
   rearSpring: Matter.Constraint;
-  frontGuideLeft: Matter.Constraint;
-  frontGuideRight: Matter.Constraint;
-  rearGuideLeft: Matter.Constraint;
-  rearGuideRight: Matter.Constraint;
+  frontStrut: Matter.Constraint;
+  rearStrut: Matter.Constraint;
   def: CarDef;
   engineOn = true;
   boosting = false;
@@ -92,60 +90,38 @@ export class Car {
       damping: def.suspensionDamping,
     });
 
-    // Parallelogram guide constraints — two per wheel, offset horizontally
-    // on the chassis but both connecting to the wheel center.
-    // This forms a V-shape that prevents lateral swing while allowing
-    // vertical travel along the suspension axis.
-    const guideSpread = 14; // horizontal offset from wheel centerline
-    const guideStiffness = 0.15; // soft enough to let springs compress
-    const guideDamping = 0.02;
-
+    // Strut constraints — one per wheel, from directly above the wheel
+    // on the chassis (center height) straight down to the wheel center.
+    // This acts like a control arm: the wheel hangs on a short arc
+    // that is nearly vertical, preventing lateral swing while the
+    // softer spring below provides the bounce.
     const frontWheelX = hw * 0.7;
     const rearWheelX = -hw * 0.7;
-    const guideLen = def.suspensionLength + def.chassisHeight / 2;
+    const strutLen = def.suspensionLength + def.chassisHeight / 2;
 
-    this.frontGuideLeft = Matter.Constraint.create({
+    this.frontStrut = Matter.Constraint.create({
       bodyA: this.chassis,
-      pointA: { x: frontWheelX - guideSpread, y: -def.chassisHeight / 2 },
+      pointA: { x: frontWheelX, y: 0 },
       bodyB: this.frontWheel,
-      length: guideLen,
-      stiffness: guideStiffness,
-      damping: guideDamping,
+      length: strutLen,
+      stiffness: 0.8,
+      damping: 0.05,
     });
 
-    this.frontGuideRight = Matter.Constraint.create({
+    this.rearStrut = Matter.Constraint.create({
       bodyA: this.chassis,
-      pointA: { x: frontWheelX + guideSpread, y: -def.chassisHeight / 2 },
-      bodyB: this.frontWheel,
-      length: guideLen,
-      stiffness: guideStiffness,
-      damping: guideDamping,
-    });
-
-    this.rearGuideLeft = Matter.Constraint.create({
-      bodyA: this.chassis,
-      pointA: { x: rearWheelX - guideSpread, y: -def.chassisHeight / 2 },
+      pointA: { x: rearWheelX, y: 0 },
       bodyB: this.rearWheel,
-      length: guideLen,
-      stiffness: guideStiffness,
-      damping: guideDamping,
-    });
-
-    this.rearGuideRight = Matter.Constraint.create({
-      bodyA: this.chassis,
-      pointA: { x: rearWheelX + guideSpread, y: -def.chassisHeight / 2 },
-      bodyB: this.rearWheel,
-      length: guideLen,
-      stiffness: guideStiffness,
-      damping: guideDamping,
+      length: strutLen,
+      stiffness: 0.8,
+      damping: 0.05,
     });
 
     this.composite = Matter.Composite.create();
     Matter.Composite.add(this.composite, [
       this.chassis, this.frontWheel, this.rearWheel, this.driver,
       this.frontSpring, this.rearSpring,
-      this.frontGuideLeft, this.frontGuideRight,
-      this.rearGuideLeft, this.rearGuideRight,
+      this.frontStrut, this.rearStrut,
       this.driverConstraint,
     ]);
   }
