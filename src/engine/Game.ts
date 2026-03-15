@@ -90,8 +90,9 @@ export class Game {
     this.car = new Car(def, startX, startY);
     Matter.Composite.add(this.engine.world, this.car.composite);
 
-    // Create terrain
+    // Create terrain and pre-generate initial chunks
     this.terrain = new TerrainManager(this.engine.world, this.seed);
+    this.terrain.update(startX);
     this.birds = new Birds(this.seed);
 
     // Reset game state
