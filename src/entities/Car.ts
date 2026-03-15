@@ -7,16 +7,18 @@ export class Car {
   chassis: Matter.Body;
   frontWheel: Matter.Body;
   rearWheel: Matter.Body;
-  // A-arm suspension: two springs per wheel, spread fore-aft
-  frontArmFore: Matter.Constraint;
-  frontArmAft: Matter.Constraint;
-  rearArmFore: Matter.Constraint;
-  rearArmAft: Matter.Constraint;
+  // One spring per wheel for vertical bounce
+  frontSpring: Matter.Constraint;
+  rearSpring: Matter.Constraint;
   def: CarDef;
   engineOn = true;
   boosting = false;
   private flameFlicker = 0;
   composite: Matter.Composite;
+
+  // Chassis-local X positions of wheel attachment points
+  private frontAttachX: number;
+  private rearAttachX: number;
 
   // Driver head hitbox (for death detection)
   driver: Matter.Body;
@@ -27,6 +29,9 @@ export class Car {
 
     const hw = def.chassisWidth / 2;
     const wheelY = y + def.suspensionLength;
+
+    this.frontAttachX = hw * 0.7;
+    this.rearAttachX = -hw * 0.7;
 
     // Chassis
     this.chassis = Matter.Bodies.rectangle(x, y, def.chassisWidth, def.chassisHeight, {
@@ -56,7 +61,7 @@ export class Car {
     });
 
     // Wheels
-    this.frontWheel = Matter.Bodies.circle(x + hw * 0.7, wheelY, def.wheelRadius, {
+    this.frontWheel = Matter.Bodies.circle(x + this.frontAttachX, wheelY, def.wheelRadius, {
       label: 'wheel-front',
       friction: 0.9,
       density: 0.001,
@@ -64,7 +69,7 @@ export class Car {
       collisionFilter: { group: -1 },
     });
 
-    this.rearWheel = Matter.Bodies.circle(x - hw * 0.7, wheelY, def.wheelRadius, {
+    this.rearWheel = Matter.Bodies.circle(x + this.rearAttachX, wheelY, def.wheelRadius, {
       label: 'wheel-rear',
       friction: 0.9,
       density: 0.001,
@@ -72,60 +77,23 @@ export class Car {
       collisionFilter: { group: -1 },
     });
 
-    // A-arm / wishbone suspension: two springs per wheel, spread
-    // fore and aft along the chassis. Both converge on the wheel center,
-    // forming an inverted-V (triangle) when viewed from the side.
-    //
-    //    chassis: ---[fore]------[aft]---
-    //                   \       /
-    //                    \     /
-    //                     wheel
-    //
-    // Vertical compression: both arms lengthen equally → smooth bounce.
-    // Fore-aft displacement: one shortens while other lengthens →
-    //   strong triangulated restoring force prevents lateral swing.
-    const frontWheelX = hw * 0.7;
-    const rearWheelX = -hw * 0.7;
-    const armSpread = 20; // fore-aft offset from wheel centerline on chassis
-    const armY = -def.chassisHeight / 2; // attach from top of chassis
-
-    // Compute natural arm length from attachment point to wheel rest position
-    const armDx = armSpread;
-    const armDy = def.suspensionLength + def.chassisHeight; // top of chassis to wheel
-    const armLen = Math.sqrt(armDx * armDx + armDy * armDy);
-
-    this.frontArmFore = Matter.Constraint.create({
+    // One simple spring per wheel from the bottom of the chassis
+    // straight down to the wheel center. This provides the bounce.
+    // Lateral constraint is enforced manually in constrainWheels().
+    this.frontSpring = Matter.Constraint.create({
       bodyA: this.chassis,
-      pointA: { x: frontWheelX + armSpread, y: armY },
+      pointA: { x: this.frontAttachX, y: def.chassisHeight / 2 },
       bodyB: this.frontWheel,
-      length: armLen,
+      length: def.suspensionLength,
       stiffness: def.suspensionStiffness,
       damping: def.suspensionDamping,
     });
 
-    this.frontArmAft = Matter.Constraint.create({
+    this.rearSpring = Matter.Constraint.create({
       bodyA: this.chassis,
-      pointA: { x: frontWheelX - armSpread, y: armY },
-      bodyB: this.frontWheel,
-      length: armLen,
-      stiffness: def.suspensionStiffness,
-      damping: def.suspensionDamping,
-    });
-
-    this.rearArmFore = Matter.Constraint.create({
-      bodyA: this.chassis,
-      pointA: { x: rearWheelX + armSpread, y: armY },
+      pointA: { x: this.rearAttachX, y: def.chassisHeight / 2 },
       bodyB: this.rearWheel,
-      length: armLen,
-      stiffness: def.suspensionStiffness,
-      damping: def.suspensionDamping,
-    });
-
-    this.rearArmAft = Matter.Constraint.create({
-      bodyA: this.chassis,
-      pointA: { x: rearWheelX - armSpread, y: armY },
-      bodyB: this.rearWheel,
-      length: armLen,
+      length: def.suspensionLength,
       stiffness: def.suspensionStiffness,
       damping: def.suspensionDamping,
     });
@@ -133,10 +101,56 @@ export class Car {
     this.composite = Matter.Composite.create();
     Matter.Composite.add(this.composite, [
       this.chassis, this.frontWheel, this.rearWheel, this.driver,
-      this.frontArmFore, this.frontArmAft,
-      this.rearArmFore, this.rearArmAft,
+      this.frontSpring, this.rearSpring,
       this.driverConstraint,
     ]);
+  }
+
+  /**
+   * Call after each physics step. Constrains each wheel to move only
+   * along the chassis-local vertical axis (like a slider/prismatic joint).
+   * The spring constraint handles the vertical bounce; this handles lateral lockout.
+   */
+  constrainWheels() {
+    this.constrainWheel(this.frontWheel, this.frontAttachX);
+    this.constrainWheel(this.rearWheel, this.rearAttachX);
+  }
+
+  private constrainWheel(wheel: Matter.Body, attachX: number) {
+    const ch = this.chassis;
+    const cos = Math.cos(ch.angle);
+    const sin = Math.sin(ch.angle);
+
+    // World position of the attachment point on the chassis bottom
+    const attachWorldX = ch.position.x + attachX * cos - (this.def.chassisHeight / 2) * sin;
+    const attachWorldY = ch.position.y + attachX * sin + (this.def.chassisHeight / 2) * cos;
+
+    // Vector from attachment to wheel in world coords
+    const dx = wheel.position.x - attachWorldX;
+    const dy = wheel.position.y - attachWorldY;
+
+    // Project onto chassis-local axes:
+    // "along" = chassis-local X (the lateral axis we want to zero out)
+    // "down" = chassis-local Y (the vertical axis we want to keep)
+    const along = dx * cos + dy * sin;   // lateral displacement
+    // const down = -dx * sin + dy * cos; // vertical displacement (we keep this)
+
+    // Remove the lateral component — snap wheel to directly below attachment
+    if (Math.abs(along) > 0.1) {
+      Matter.Body.setPosition(wheel, {
+        x: wheel.position.x - along * cos,
+        y: wheel.position.y - along * sin,
+      });
+
+      // Also remove lateral velocity component
+      const vx = wheel.velocity.x;
+      const vy = wheel.velocity.y;
+      const lateralVel = vx * cos + vy * sin;
+      Matter.Body.setVelocity(wheel, {
+        x: vx - lateralVel * cos,
+        y: vy - lateralVel * sin,
+      });
+    }
   }
 
   get position() {
@@ -154,7 +168,6 @@ export class Car {
   }
 
   get isUpsideDown(): boolean {
-    // Car is upside down if rotated more than ~120 degrees either way
     const angle = Math.abs(this.chassis.angle % (Math.PI * 2));
     return angle > Math.PI * 0.65 && angle < Math.PI * 1.35;
   }
@@ -216,6 +229,10 @@ export class Car {
   }
 
   draw(ctx: CanvasRenderingContext2D) {
+    // Draw suspension struts first (behind everything)
+    this.drawStrut(ctx, this.frontWheel, this.frontAttachX);
+    this.drawStrut(ctx, this.rearWheel, this.rearAttachX);
+
     // Draw chassis
     const ch = this.chassis;
     ctx.save();
@@ -253,7 +270,6 @@ export class Car {
       const flicker1 = Math.sin(this.flameFlicker * 7) * 0.3 + 0.7;
       const flicker2 = Math.cos(this.flameFlicker * 11) * 0.2 + 0.8;
 
-      // Flame comes from the rear of the chassis
       const flameX = -w / 2 - 5;
       const flameY = 0;
       const flameLen = 20 + flicker1 * 15;
@@ -335,16 +351,43 @@ export class Car {
     // Draw wheels
     this.drawWheel(ctx, this.frontWheel, this.def.wheelRadius);
     this.drawWheel(ctx, this.rearWheel, this.def.wheelRadius);
+  }
 
-    // Draw A-arm suspension (two arms per wheel)
-    const hw = this.def.chassisWidth / 2;
-    const armSpread = 20;
-    const frontWX = hw * 0.7;
-    const rearWX = -hw * 0.7;
-    this.drawArm(ctx, this.chassis, this.frontWheel, frontWX + armSpread, -this.def.chassisHeight / 2);
-    this.drawArm(ctx, this.chassis, this.frontWheel, frontWX - armSpread, -this.def.chassisHeight / 2);
-    this.drawArm(ctx, this.chassis, this.rearWheel, rearWX + armSpread, -this.def.chassisHeight / 2);
-    this.drawArm(ctx, this.chassis, this.rearWheel, rearWX - armSpread, -this.def.chassisHeight / 2);
+  private drawStrut(ctx: CanvasRenderingContext2D, wheel: Matter.Body, attachX: number) {
+    const ch = this.chassis;
+    const cos = Math.cos(ch.angle);
+    const sin = Math.sin(ch.angle);
+
+    // Attachment point on chassis bottom
+    const ax = ch.position.x + attachX * cos - (this.def.chassisHeight / 2) * sin;
+    const ay = ch.position.y + attachX * sin + (this.def.chassisHeight / 2) * cos;
+
+    // Draw a spring zigzag from attachment to wheel
+    const wx = wheel.position.x;
+    const wy = wheel.position.y;
+    const dx = wx - ax;
+    const dy = wy - ay;
+    const steps = 6;
+    const amp = 4;
+
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const px = ax + dx * t + (i % 2 === 0 ? -amp : amp);
+      const py = ay + dy * t;
+      ctx.lineTo(px, py);
+    }
+    ctx.lineTo(wx, wy);
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Pivot circles
+    ctx.beginPath();
+    ctx.arc(ax, ay, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#666';
+    ctx.fill();
   }
 
   private drawWheel(ctx: CanvasRenderingContext2D, wheel: Matter.Body, radius: number) {
@@ -379,34 +422,6 @@ export class Car {
     }
 
     ctx.restore();
-  }
-
-  private drawArm(
-    ctx: CanvasRenderingContext2D,
-    body: Matter.Body,
-    wheel: Matter.Body,
-    localX: number,
-    localY: number
-  ) {
-    // Transform the local chassis attachment point to world coords
-    const cos = Math.cos(body.angle);
-    const sin = Math.sin(body.angle);
-    const startX = body.position.x + localX * cos - localY * sin;
-    const startY = body.position.y + localX * sin + localY * cos;
-
-    // Draw a solid arm line
-    ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    ctx.lineTo(wheel.position.x, wheel.position.y);
-    ctx.strokeStyle = '#666';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-
-    // Small circle at chassis attachment point
-    ctx.beginPath();
-    ctx.arc(startX, startY, 3, 0, Math.PI * 2);
-    ctx.fillStyle = '#888';
-    ctx.fill();
   }
 
   private roundRect(

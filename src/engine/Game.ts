@@ -195,6 +195,7 @@ export class Game {
       }
       // Still update physics while dead (briefly)
       Matter.Engine.update(this.engine, dt * 1000);
+      this.car.constrainWheels();
       this.camera.follow(this.car.position.x, this.car.position.y);
       this.camera.update(dt);
       this.state.updatePopups(dt);
@@ -245,6 +246,7 @@ export class Game {
 
     // Physics
     Matter.Engine.update(this.engine, dt * 1000);
+    this.car.constrainWheels();
 
     // Update distance
     this.state.updateDistance(this.car.position.x);
