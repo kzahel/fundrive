@@ -87,13 +87,16 @@ export class TouchControls {
       btn.addEventListener('touchstart', (e) => {
         e.preventDefault();
         inputManager.setTouchButton(name, true);
+        btn.classList.add('active');
       });
       btn.addEventListener('touchend', (e) => {
         e.preventDefault();
         inputManager.setTouchButton(name, false);
+        btn.classList.remove('active');
       });
       btn.addEventListener('touchcancel', () => {
         inputManager.setTouchButton(name, false);
+        btn.classList.remove('active');
       });
     });
 

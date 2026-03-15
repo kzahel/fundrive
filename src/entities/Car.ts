@@ -136,7 +136,7 @@ export class Car {
     }
 
     const speed = this.def.maxSpeed * (input.boost ? BOOST_TORQUE_MULTIPLIER : 1);
-    const torque = this.def.torque * 100 * (input.boost ? BOOST_TORQUE_MULTIPLIER : 1);
+    const torque = this.def.torque * 2000 * (input.boost ? BOOST_TORQUE_MULTIPLIER : 1);
     const dt = this.def.driveType as DriveType;
 
     let motorSpeed = 0;
@@ -160,10 +160,10 @@ export class Car {
 
     // Lean (rotate chassis via torque)
     if (input.leanBack) {
-      this.chassis.applyTorque(-this.def.mass * 5);
+      this.chassis.applyTorque(-this.def.mass * 80);
     }
     if (input.leanForward) {
-      this.chassis.applyTorque(this.def.mass * 3);
+      this.chassis.applyTorque(this.def.mass * 60);
     }
 
     if (input.toggleEngine) {
