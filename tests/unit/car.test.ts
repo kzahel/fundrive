@@ -17,7 +17,8 @@ describe('Car', () => {
     const bodies = Matter.Composite.allBodies(car.composite);
     expect(bodies.length).toBe(4); // chassis, front wheel, rear wheel, driver
     const constraints = Matter.Composite.allConstraints(car.composite);
-    expect(constraints.length).toBe(5); // front spring, rear spring, front axle, rear axle, driver
+    // front spring, rear spring, 4 guide constraints, driver
+    expect(constraints.length).toBe(7);
   });
 
   it('position returns chassis position', () => {

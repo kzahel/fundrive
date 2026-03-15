@@ -7,10 +7,12 @@ export class Car {
   chassis: Matter.Body;
   frontWheel: Matter.Body;
   rearWheel: Matter.Body;
-  frontAxle: Matter.Constraint;
-  rearAxle: Matter.Constraint;
   frontSpring: Matter.Constraint;
   rearSpring: Matter.Constraint;
+  frontGuideLeft: Matter.Constraint;
+  frontGuideRight: Matter.Constraint;
+  rearGuideLeft: Matter.Constraint;
+  rearGuideRight: Matter.Constraint;
   def: CarDef;
   engineOn = true;
   composite: Matter.Composite;
@@ -69,7 +71,7 @@ export class Car {
       collisionFilter: { group: -1 },
     });
 
-    // Spring constraints (suspension)
+    // Spring constraints (suspension — vertical softness)
     this.frontSpring = Matter.Constraint.create({
       bodyA: this.chassis,
       pointA: { x: hw * 0.7, y: def.chassisHeight / 2 },
@@ -88,29 +90,60 @@ export class Car {
       damping: def.suspensionDamping,
     });
 
-    // Axle constraints (prevent lateral movement)
-    this.frontAxle = Matter.Constraint.create({
+    // Parallelogram guide constraints — two per wheel, offset horizontally
+    // on the chassis but both connecting to the wheel center.
+    // This forms a V-shape that prevents lateral swing while allowing
+    // vertical travel along the suspension axis.
+    const guideSpread = 12; // horizontal offset from wheel centerline
+    const guideStiffness = 0.6;
+    const guideDamping = 0.05;
+
+    const frontWheelX = hw * 0.7;
+    const rearWheelX = -hw * 0.7;
+    const guideLen = def.suspensionLength + def.chassisHeight / 2;
+
+    this.frontGuideLeft = Matter.Constraint.create({
       bodyA: this.chassis,
-      pointA: { x: hw * 0.7, y: 0 },
+      pointA: { x: frontWheelX - guideSpread, y: -def.chassisHeight / 2 },
       bodyB: this.frontWheel,
-      length: def.suspensionLength + def.chassisHeight / 2,
-      stiffness: 0.2,
-      damping: 0.01,
+      length: guideLen,
+      stiffness: guideStiffness,
+      damping: guideDamping,
     });
 
-    this.rearAxle = Matter.Constraint.create({
+    this.frontGuideRight = Matter.Constraint.create({
       bodyA: this.chassis,
-      pointA: { x: -hw * 0.7, y: 0 },
+      pointA: { x: frontWheelX + guideSpread, y: -def.chassisHeight / 2 },
+      bodyB: this.frontWheel,
+      length: guideLen,
+      stiffness: guideStiffness,
+      damping: guideDamping,
+    });
+
+    this.rearGuideLeft = Matter.Constraint.create({
+      bodyA: this.chassis,
+      pointA: { x: rearWheelX - guideSpread, y: -def.chassisHeight / 2 },
       bodyB: this.rearWheel,
-      length: def.suspensionLength + def.chassisHeight / 2,
-      stiffness: 0.2,
-      damping: 0.01,
+      length: guideLen,
+      stiffness: guideStiffness,
+      damping: guideDamping,
+    });
+
+    this.rearGuideRight = Matter.Constraint.create({
+      bodyA: this.chassis,
+      pointA: { x: rearWheelX + guideSpread, y: -def.chassisHeight / 2 },
+      bodyB: this.rearWheel,
+      length: guideLen,
+      stiffness: guideStiffness,
+      damping: guideDamping,
     });
 
     this.composite = Matter.Composite.create();
     Matter.Composite.add(this.composite, [
       this.chassis, this.frontWheel, this.rearWheel, this.driver,
-      this.frontSpring, this.rearSpring, this.frontAxle, this.rearAxle,
+      this.frontSpring, this.rearSpring,
+      this.frontGuideLeft, this.frontGuideRight,
+      this.rearGuideLeft, this.rearGuideRight,
       this.driverConstraint,
     ]);
   }
