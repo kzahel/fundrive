@@ -15,6 +15,8 @@ export class Car {
   rearGuideRight: Matter.Constraint;
   def: CarDef;
   engineOn = true;
+  boosting = false;
+  private flameFlicker = 0;
   composite: Matter.Composite;
 
   // Driver head hitbox (for death detection)
@@ -169,6 +171,7 @@ export class Car {
   }
 
   applyInput(input: InputState) {
+    this.boosting = input.boost && input.gas && this.engineOn;
     if (!this.engineOn) return;
 
     const torque = input.boost
@@ -254,6 +257,62 @@ export class Car {
     const winH = cabH * 0.6;
     this.roundRect(ctx, -winW / 2 + 5, -h / 2 - cabH + 4, winW, winH, 3);
     ctx.fill();
+
+    // Boost flame (drawn in chassis-local coords)
+    if (this.boosting) {
+      this.flameFlicker += 0.3;
+      const flicker1 = Math.sin(this.flameFlicker * 7) * 0.3 + 0.7;
+      const flicker2 = Math.cos(this.flameFlicker * 11) * 0.2 + 0.8;
+
+      // Flame comes from the rear of the chassis
+      const flameX = -w / 2 - 5;
+      const flameY = 0;
+      const flameLen = 20 + flicker1 * 15;
+      const flameW = h * 0.6;
+
+      // Outer flame (orange/red)
+      ctx.beginPath();
+      ctx.moveTo(flameX, flameY - flameW / 2);
+      ctx.quadraticCurveTo(
+        flameX - flameLen * 0.6, flameY - flameW * 0.3 * flicker2,
+        flameX - flameLen, flameY
+      );
+      ctx.quadraticCurveTo(
+        flameX - flameLen * 0.6, flameY + flameW * 0.3 * flicker1,
+        flameX, flameY + flameW / 2
+      );
+      ctx.closePath();
+      ctx.fillStyle = '#FF4400';
+      ctx.fill();
+
+      // Inner flame (yellow)
+      const innerLen = flameLen * 0.6;
+      const innerW = flameW * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(flameX, flameY - innerW / 2);
+      ctx.quadraticCurveTo(
+        flameX - innerLen * 0.5, flameY - innerW * 0.2 * flicker1,
+        flameX - innerLen, flameY
+      );
+      ctx.quadraticCurveTo(
+        flameX - innerLen * 0.5, flameY + innerW * 0.2 * flicker2,
+        flameX, flameY + innerW / 2
+      );
+      ctx.closePath();
+      ctx.fillStyle = '#FFDD00';
+      ctx.fill();
+
+      // Core (white-hot)
+      const coreLen = innerLen * 0.4;
+      const coreW = innerW * 0.4;
+      ctx.beginPath();
+      ctx.moveTo(flameX, flameY - coreW / 2);
+      ctx.quadraticCurveTo(flameX - coreLen * 0.5, flameY, flameX - coreLen, flameY);
+      ctx.quadraticCurveTo(flameX - coreLen * 0.5, flameY, flameX, flameY + coreW / 2);
+      ctx.closePath();
+      ctx.fillStyle = '#FFFFCC';
+      ctx.fill();
+    }
 
     ctx.restore();
 
