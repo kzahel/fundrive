@@ -7,8 +7,11 @@ export interface CarDef {
   chassisWidth: number;
   chassisHeight: number;
   wheelRadius: number;
+  /** WheelJoint spring frequency in Hz (higher = stiffer) */
   suspensionStiffness: number;
+  /** WheelJoint damping ratio (0 = no damping, 1 = critical) */
   suspensionDamping: number;
+  /** Rest length of suspension in pixels */
   suspensionLength: number;
   torque: number;
   maxSpeed: number;
@@ -24,8 +27,8 @@ export const CAR_DEFS: Record<string, CarDef> = {
     chassisWidth: 110,
     chassisHeight: 25,
     wheelRadius: 18,
-    suspensionStiffness: 0.015,
-    suspensionDamping: 0.01,
+    suspensionStiffness: 3.0,   // Hz
+    suspensionDamping: 0.5,     // ratio
     suspensionLength: 20,
     torque: 0.045,
     maxSpeed: 12,
@@ -39,8 +42,8 @@ export const CAR_DEFS: Record<string, CarDef> = {
     chassisWidth: 140,
     chassisHeight: 35,
     wheelRadius: 28,
-    suspensionStiffness: 0.01,
-    suspensionDamping: 0.015,
+    suspensionStiffness: 2.0,
+    suspensionDamping: 0.4,
     suspensionLength: 30,
     torque: 0.06,
     maxSpeed: 10,
@@ -54,8 +57,8 @@ export const CAR_DEFS: Record<string, CarDef> = {
     chassisWidth: 120,
     chassisHeight: 20,
     wheelRadius: 15,
-    suspensionStiffness: 0.03,
-    suspensionDamping: 0.008,
+    suspensionStiffness: 5.0,
+    suspensionDamping: 0.6,
     suspensionLength: 12,
     torque: 0.055,
     maxSpeed: 16,
@@ -69,8 +72,8 @@ export const CAR_DEFS: Record<string, CarDef> = {
     chassisWidth: 115,
     chassisHeight: 30,
     wheelRadius: 22,
-    suspensionStiffness: 0.015,
-    suspensionDamping: 0.012,
+    suspensionStiffness: 3.0,
+    suspensionDamping: 0.5,
     suspensionLength: 24,
     torque: 0.05,
     maxSpeed: 13,

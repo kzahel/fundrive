@@ -1,4 +1,4 @@
-import Matter from 'matter-js';
+import * as planck from 'planck';
 import { Camera } from './Camera';
 import { InputManager } from './InputManager';
 import { Recorder } from './Recorder';
@@ -9,13 +9,18 @@ import { GameState } from '../gameplay/GameState';
 import { Birds } from '../gameplay/Birds';
 import { Particles } from '../gameplay/Particles';
 import { HUD } from '../ui/HUD';
-import { GROUND_Y, GRAVITY, COLORS } from '../utils/constants';
+import { GROUND_Y, GRAVITY, COLORS, SCALE } from '../utils/constants';
 import { saveScore } from '../ui/Scores';
+
+function getLabel(body: planck.Body): string {
+  const ud = body.getUserData() as { label?: string } | null;
+  return ud?.label ?? '';
+}
 
 export class Game {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
-  engine: Matter.Engine;
+  world!: planck.World;
   camera: Camera;
   input: InputManager;
   recorder: Recorder;
@@ -34,17 +39,12 @@ export class Game {
   private respawnTimer = 0;
   private airTime = 0;
   private lastMilestone = 0;
-  // Track if any wheel is on ground
   private wheelsOnGround = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
     this.seed = Math.floor(Math.random() * 999999);
-
-    this.engine = Matter.Engine.create({
-      gravity: { x: 0, y: GRAVITY, scale: 0.001 },
-    });
 
     this.camera = new Camera(canvas.width, canvas.height);
     this.input = new InputManager();
@@ -56,30 +56,21 @@ export class Game {
     this.resize();
     window.addEventListener('resize', () => this.resize());
 
-    // Collision detection
-    Matter.Events.on(this.engine, 'collisionStart', (e) => this.onCollision(e));
-    Matter.Events.on(this.engine, 'collisionActive', (e) => this.onCollisionActive(e));
-
     // Click/tap handling for HUD buttons
     const handleClick = (x: number, y: number) => {
       if (!this.running) return;
-      const hb = this.hud;
-
-      // Menu button during gameplay
-      if (this.hitRect(x, y, hb.menuButtonRect)) {
+      if (this.hitRect(x, y, this.hud.menuButtonRect)) {
         this.goToMenu();
         return;
       }
-
-      // Game over buttons
       if (this.state.gameOver) {
-        if (this.hitRect(x, y, hb.restartButtonRect)) {
+        if (this.hitRect(x, y, this.hud.restartButtonRect)) {
           this.state.gameOver = false;
           this.state.dead = false;
           this.reset();
           return;
         }
-        if (this.hitRect(x, y, hb.menuButtonGameOverRect)) {
+        if (this.hitRect(x, y, this.hud.menuButtonGameOverRect)) {
           this.goToMenu();
           return;
         }
@@ -114,38 +105,36 @@ export class Game {
 
   goToMenu() {
     this.running = false;
-    Matter.World.clear(this.engine.world, false);
-    Matter.Engine.clear(this.engine);
     if (this.onMenu) this.onMenu();
   }
 
   reset() {
-    // Clear physics world
-    Matter.World.clear(this.engine.world, false);
-    Matter.Engine.clear(this.engine);
-    this.engine.gravity.y = GRAVITY;
+    // Create new physics world
+    this.world = new planck.World({
+      gravity: planck.Vec2(0, GRAVITY),
+    });
+
+    // Set up contact listener
+    this.world.on('begin-contact', (contact) => this.onContact(contact));
 
     const startX = 100;
     const startY = GROUND_Y - 80;
 
     // Create car
     const def = CAR_DEFS[this.carKey];
-    this.car = new Car(def, startX, startY);
-    Matter.Composite.add(this.engine.world, this.car.composite);
+    this.car = new Car(def, this.world, startX, startY);
 
     // Create terrain and pre-generate initial chunks
-    this.terrain = new TerrainManager(this.engine.world, this.seed);
+    this.terrain = new TerrainManager(this.world, this.seed);
     this.terrain.update(startX);
     this.birds = new Birds(this.seed);
 
-    // Reset game state
     this.state.reset(startX, startY);
     this.recorder.reset();
     this.respawnTimer = 0;
     this.airTime = 0;
     this.lastMilestone = 0;
 
-    // Initial camera position
     this.camera.x = startX - this.camera.width * 0.35;
     this.camera.y = startY - this.camera.height * 0.5;
   }
@@ -157,11 +146,9 @@ export class Game {
     if (!this.running) return;
 
     const rawDt = (time - this.lastTime) / 1000;
-    // Cap dt to prevent spiral of death
     const dt = Math.min(rawDt, 1 / 15);
     this.lastTime = time;
 
-    // Fixed timestep accumulator for frame-rate independent physics
     this.accumulator += dt;
     while (this.accumulator >= this.PHYSICS_DT) {
       this.update(this.PHYSICS_DT);
@@ -187,15 +174,12 @@ export class Game {
       return;
     }
 
-    // Handle respawn timer
     if (this.state.dead) {
       this.respawnTimer -= dt;
       if (this.respawnTimer <= 0) {
         this.respawn();
       }
-      // Still update physics while dead (briefly)
-      Matter.Engine.update(this.engine, dt * 1000);
-      this.car.constrainWheels();
+      this.world.step(dt);
       this.camera.follow(this.car.position.x, this.car.position.y);
       this.camera.update(dt);
       this.state.updatePopups(dt);
@@ -210,14 +194,12 @@ export class Game {
     }
     this.recorder.record(input);
 
-    // Apply car input
     this.car.engineOn = this.state.engineOn;
     if (input.toggleEngine) {
       this.state.engineOn = !this.state.engineOn;
       this.car.engineOn = this.state.engineOn;
     }
     if (input.reset) {
-      this.respawnTimer = 0;
       this.state.die(this.car.position.x, this.car.position.y);
       this.respawnTimer = 1;
       return;
@@ -231,7 +213,7 @@ export class Game {
     }
     this.car.engineOn = this.state.engineOn;
 
-    // Check if out of fuel and stopped
+    // Out of fuel and stopped
     if (this.state.fuel <= 0 && this.car.speed < 0.5) {
       this.state.gameOver = true;
       saveScore({
@@ -244,11 +226,9 @@ export class Game {
       });
     }
 
-    // Physics
-    Matter.Engine.update(this.engine, dt * 1000);
-    this.car.constrainWheels();
+    // Physics step
+    this.world.step(dt);
 
-    // Update distance
     this.state.updateDistance(this.car.position.x);
 
     // Milestones
@@ -259,7 +239,7 @@ export class Game {
       this.state.addPopup(`${milestone}m!`, this.car.position.x, this.car.position.y - 80, '#FF00FF');
     }
 
-    // Air time detection
+    // Air time
     if (!this.wheelsOnGround) {
       this.airTime += dt;
     } else {
@@ -275,37 +255,32 @@ export class Game {
     }
     this.wheelsOnGround = false;
 
-    // Death check — driver head touches ground
+    // Upside down check
     if (this.car.isUpsideDown) {
       this.state.die(this.car.position.x, this.car.position.y);
       this.respawnTimer = 1.5;
     }
 
-    // Fell off the world
+    // Fell off world
     if (this.car.position.y > GROUND_Y + 500) {
       this.state.die(this.car.position.x, this.car.position.y);
       this.respawnTimer = 1;
     }
 
-    // Dust particles when driving on ground
+    // Dust
     if (this.wheelsOnGround && this.car.speed > 2) {
+      const rwPos = this.car.rearWheel.getPosition();
       this.particles.dust(
-        this.car.rearWheel.position.x,
-        this.car.rearWheel.position.y + this.car.def.wheelRadius,
+        rwPos.x * SCALE,
+        rwPos.y * SCALE + this.car.def.wheelRadius,
         '#B8A080'
       );
     }
 
-    // Update systems
     this.terrain.update(this.car.position.x);
     this.camera.follow(this.car.position.x, this.car.position.y);
     this.camera.update(dt);
-    this.birds.update(
-      dt,
-      this.camera.x,
-      this.camera.y,
-      this.camera.width
-    );
+    this.birds.update(dt, this.camera.x, this.camera.y, this.camera.width);
     this.particles.update(dt);
     this.state.updatePopups(dt);
   }
@@ -315,17 +290,14 @@ export class Game {
     const w = this.canvas.width;
     const h = this.canvas.height;
 
-    // Sky gradient
     const grad = ctx.createLinearGradient(0, 0, 0, h);
     grad.addColorStop(0, COLORS.sky);
     grad.addColorStop(1, COLORS.skyBottom);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
 
-    // Background clouds (parallax)
     this.drawClouds(ctx, w, h);
 
-    // World-space rendering
     this.camera.applyTransform(ctx);
 
     const bounds = this.camera.visibleBounds;
@@ -337,7 +309,6 @@ export class Game {
 
     this.camera.restore(ctx);
 
-    // Screen-space UI
     this.hud.draw(ctx, this.state, w, h);
 
     if (this.state.dead && !this.state.gameOver) {
@@ -363,63 +334,61 @@ export class Game {
     }
   }
 
-  private onCollision(event: Matter.IEventCollision<Matter.Engine>) {
-    for (const pair of event.pairs) {
-      this.handleCollisionPair(pair.bodyA, pair.bodyB);
-    }
-  }
+  private onContact(contact: planck.Contact) {
+    const fixtureA = contact.getFixtureA();
+    const fixtureB = contact.getFixtureB();
+    const bodyA = fixtureA.getBody();
+    const bodyB = fixtureB.getBody();
+    const labelA = getLabel(bodyA);
+    const labelB = getLabel(bodyB);
 
-  private onCollisionActive(event: Matter.IEventCollision<Matter.Engine>) {
-    for (const pair of event.pairs) {
-      // Track wheels on ground
-      const a = pair.bodyA.label;
-      const b = pair.bodyB.label;
-      if (
-        (a.startsWith('wheel') && b.startsWith('ground')) ||
-        (b.startsWith('wheel') && a.startsWith('ground'))
-      ) {
-        this.wheelsOnGround = true;
-      }
+    // Wheel on ground tracking
+    if (
+      (labelA.startsWith('wheel') && labelB.startsWith('ground')) ||
+      (labelB.startsWith('wheel') && labelA.startsWith('ground'))
+    ) {
+      this.wheelsOnGround = true;
     }
-  }
 
-  private handleCollisionPair(a: Matter.Body, b: Matter.Body) {
     // Coin collection
-    if (a.label === 'coin' || b.label === 'coin') {
-      const coin = a.label === 'coin' ? a : b;
-      const other = a.label === 'coin' ? b : a;
-      if (other.label.startsWith('wheel') || other.label === 'chassis') {
-        this.terrain.removeCoin(coin);
-        this.state.collectCoin(coin.position.x, coin.position.y);
-        this.particles.emit(coin.position.x, coin.position.y, 8, '#FFD700');
+    if (labelA === 'coin' || labelB === 'coin') {
+      const coinBody = labelA === 'coin' ? bodyA : bodyB;
+      const otherLabel = labelA === 'coin' ? labelB : labelA;
+      if (otherLabel.startsWith('wheel') || otherLabel === 'chassis') {
+        const p = coinBody.getPosition();
+        this.terrain.removeCoin(coinBody);
+        this.state.collectCoin(p.x * SCALE, p.y * SCALE);
+        this.particles.emit(p.x * SCALE, p.y * SCALE, 8, '#FFD700');
       }
     }
 
     // Fuel collection
-    if (a.label === 'fuel' || b.label === 'fuel') {
-      const fuel = a.label === 'fuel' ? a : b;
-      const other = a.label === 'fuel' ? b : a;
-      if (other.label.startsWith('wheel') || other.label === 'chassis') {
-        this.terrain.removeFuel(fuel);
-        this.state.collectFuel(fuel.position.x, fuel.position.y);
-        this.particles.emit(fuel.position.x, fuel.position.y, 6, '#00CC00');
+    if (labelA === 'fuel' || labelB === 'fuel') {
+      const fuelBody = labelA === 'fuel' ? bodyA : bodyB;
+      const otherLabel = labelA === 'fuel' ? labelB : labelA;
+      if (otherLabel.startsWith('wheel') || otherLabel === 'chassis') {
+        const p = fuelBody.getPosition();
+        this.terrain.removeFuel(fuelBody);
+        this.state.collectFuel(p.x * SCALE, p.y * SCALE);
+        this.particles.emit(p.x * SCALE, p.y * SCALE, 6, '#00CC00');
       }
     }
 
     // Checkpoint
-    if (a.label === 'checkpoint' || b.label === 'checkpoint') {
-      const cp = a.label === 'checkpoint' ? a : b;
-      const other = a.label === 'checkpoint' ? b : a;
-      if (other.label.startsWith('wheel') || other.label === 'chassis') {
-        this.state.hitCheckpoint(cp.position.x, cp.position.y);
-        this.particles.confetti(cp.position.x, cp.position.y - 50);
+    if (labelA === 'checkpoint' || labelB === 'checkpoint') {
+      const cpBody = labelA === 'checkpoint' ? bodyA : bodyB;
+      const otherLabel = labelA === 'checkpoint' ? labelB : labelA;
+      if (otherLabel.startsWith('wheel') || otherLabel === 'chassis') {
+        const p = cpBody.getPosition();
+        this.state.hitCheckpoint(p.x * SCALE, p.y * SCALE);
+        this.particles.confetti(p.x * SCALE, p.y * SCALE - 50);
       }
     }
 
-    // Driver head hitting ground = death
+    // Driver head hitting ground
     if (
-      (a.label === 'driver' && b.label.startsWith('ground')) ||
-      (b.label === 'driver' && a.label.startsWith('ground'))
+      (labelA === 'driver' && labelB.startsWith('ground')) ||
+      (labelB === 'driver' && labelA.startsWith('ground'))
     ) {
       this.state.die(this.car.position.x, this.car.position.y);
       this.respawnTimer = 1.5;
@@ -430,7 +399,6 @@ export class Game {
     this.state.dead = false;
 
     if (!this.state.lastCheckpoint) {
-      // No checkpoint — game over
       this.state.gameOver = true;
       saveScore({
         distance: this.state.distance,
@@ -445,18 +413,19 @@ export class Game {
 
     const cp = this.state.lastCheckpoint;
 
-    // Remove old car
-    Matter.Composite.remove(this.engine.world, this.car.composite);
+    // Destroy old car bodies
+    this.world.destroyBody(this.car.chassis);
+    this.world.destroyBody(this.car.frontWheel);
+    this.world.destroyBody(this.car.rearWheel);
+    this.world.destroyBody(this.car.driver);
 
     // Create new car at checkpoint
-    this.car = new Car(CAR_DEFS[this.carKey], cp.x, cp.y - 80);
-    Matter.Composite.add(this.engine.world, this.car.composite);
+    this.car = new Car(CAR_DEFS[this.carKey], this.world, cp.x, cp.y - 80);
 
     this.state.fuel = cp.fuel;
     this.state.engineOn = true;
     this.car.engineOn = true;
 
-    // Snap camera
     this.camera.x = cp.x - this.camera.width * 0.35;
     this.camera.y = cp.y - 80 - this.camera.height * 0.5;
   }

@@ -1,29 +1,21 @@
-// Physics
-export const GRAVITY = 1;
-export const FIXED_TIMESTEP = 1000 / 60; // 60Hz physics
+// Planck.js uses meters; we render in pixels. 1 meter = 30 pixels.
+export const SCALE = 30;
 
-// World
-export const GROUND_Y = 500; // base ground level in world coords
-export const CHUNK_WIDTH = 800; // width of each terrain chunk
-export const RENDER_AHEAD = 3; // chunks to generate ahead of camera
-export const CLEANUP_BEHIND = 2; // chunks to keep behind camera
+// Physics (in meters)
+export const GRAVITY = 15; // m/s² (higher than real for fun feel)
 
-// Car
-export const CAR_CHASSIS_WIDTH = 120;
-export const CAR_CHASSIS_HEIGHT = 30;
-export const CAR_WHEEL_RADIUS = 20;
-export const CAR_SUSPENSION_STIFFNESS = 0.05;
-export const CAR_SUSPENSION_DAMPING = 0.02;
-export const CAR_SUSPENSION_LENGTH = 15;
+// World (in pixels — converted to meters where needed)
+export const GROUND_Y = 500;
+export const CHUNK_WIDTH = 800;
+export const RENDER_AHEAD = 3;
+export const CLEANUP_BEHIND = 2;
 
 // Gameplay
 export const MAX_FUEL = 100;
-export const FUEL_DRAIN_RATE = 2; // per second
+export const FUEL_DRAIN_RATE = 2;
 export const FUEL_BOOST_MULTIPLIER = 3;
 export const BOOST_TORQUE_MULTIPLIER = 2;
-export const BASE_TORQUE = 0.05;
-export const BRAKE_FORCE = 0.05;
-export const CHECKPOINT_INTERVAL = 1500; // world units between checkpoints
+export const CHECKPOINT_INTERVAL = 1500;
 export const COIN_SCORE = 10;
 export const COIN_RADIUS = 15;
 
@@ -36,7 +28,7 @@ export const FRICTION: Record<string, number> = {
 };
 
 // Colors
-export const COLORS = {
+export const COLORS: Record<string, string> = {
   sky: '#87CEEB',
   skyBottom: '#E0F0FF',
   road: '#666666',

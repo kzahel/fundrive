@@ -1,24 +1,24 @@
-import Matter from 'matter-js';
+import * as planck from 'planck';
 import { SeededRandom } from '../utils/random';
-import { CHUNK_WIDTH, GROUND_Y, RENDER_AHEAD, CLEANUP_BEHIND, FRICTION, COLORS, CHECKPOINT_INTERVAL, COIN_RADIUS } from '../utils/constants';
+import { CHUNK_WIDTH, GROUND_Y, RENDER_AHEAD, CLEANUP_BEHIND, FRICTION, COLORS, CHECKPOINT_INTERVAL, COIN_RADIUS, SCALE } from '../utils/constants';
 import { generateChunk, type TerrainChunk, type TerrainPoint, type Decoration } from './TerrainChunks';
 
 interface PhysicsChunk {
   chunk: TerrainChunk;
-  bodies: Matter.Body[];
-  coinBodies: Matter.Body[];
-  fuelBodies: Matter.Body[];
-  checkpointSensor: Matter.Body | null;
+  bodies: planck.Body[];
+  coinBodies: planck.Body[];
+  fuelBodies: planck.Body[];
+  checkpointSensor: planck.Body | null;
 }
 
 export class TerrainManager {
   private rng: SeededRandom;
   private chunks: PhysicsChunk[] = [];
-  private world: Matter.World;
+  private world: planck.World;
   private nextIndex = 0;
   private lastEndY = GROUND_Y;
 
-  constructor(world: Matter.World, seed: number) {
+  constructor(world: planck.World, seed: number) {
     this.world = world;
     this.rng = new SeededRandom(seed);
   }
@@ -27,19 +27,17 @@ export class TerrainManager {
     const rightEdge = cameraX + CHUNK_WIDTH * RENDER_AHEAD;
     const leftEdge = cameraX - CHUNK_WIDTH * CLEANUP_BEHIND;
 
-    // Generate chunks ahead
     while (this.getLastChunkEnd() < rightEdge) {
       this.addNextChunk();
     }
 
-    // Remove chunks behind
     while (this.chunks.length > 0 && this.chunks[0].chunk.endX < leftEdge) {
       const old = this.chunks.shift()!;
       for (const b of [...old.bodies, ...old.coinBodies, ...old.fuelBodies]) {
-        Matter.Composite.remove(this.world, b);
+        this.world.destroyBody(b);
       }
       if (old.checkpointSensor) {
-        Matter.Composite.remove(this.world, old.checkpointSensor);
+        this.world.destroyBody(old.checkpointSensor);
       }
     }
   }
@@ -55,9 +53,9 @@ export class TerrainManager {
       this.nextIndex, startX, this.lastEndY, this.rng, CHECKPOINT_INTERVAL
     );
 
-    // Create ground bodies from terrain points
-    const bodies: Matter.Body[] = [];
+    const bodies: planck.Body[] = [];
     const pts = chunk.points;
+    const groundFriction = FRICTION[chunk.groundType] ?? 0.6;
 
     for (let i = 0; i < pts.length - 1; i++) {
       const p1 = pts[i];
@@ -69,91 +67,86 @@ export class TerrainManager {
       const dy = p2.y - p1.y;
       const len = Math.sqrt(dx * dx + dy * dy);
       const angle = Math.atan2(dy, dx);
-
-      // Thick ground segment
       const thickness = 60;
-      const body = Matter.Bodies.rectangle(cx, cy + thickness / 2, len + 1, thickness, {
-        isStatic: true,
-        angle,
-        friction: FRICTION[chunk.groundType] ?? 0.6,
-        label: `ground-${chunk.groundType}`,
-        render: { fillStyle: COLORS[chunk.groundType] ?? COLORS.grass },
-      });
 
+      const body = this.world.createBody({
+        type: 'static',
+        position: planck.Vec2(cx / SCALE, (cy + thickness / 2) / SCALE),
+        angle,
+      });
+      body.createFixture(planck.Box((len + 1) / 2 / SCALE, thickness / 2 / SCALE), {
+        friction: groundFriction,
+      });
+      body.setUserData({ label: `ground-${chunk.groundType}` });
       bodies.push(body);
     }
 
-    // Coin bodies (sensors)
-    const coinBodies = chunk.coins.map((c) =>
-      Matter.Bodies.circle(c.x, c.y, COIN_RADIUS, {
-        isStatic: true,
+    // Coins (sensors)
+    const coinBodies = chunk.coins.map((c) => {
+      const body = this.world.createBody({
+        type: 'static',
+        position: planck.Vec2(c.x / SCALE, c.y / SCALE),
+      });
+      body.createFixture(planck.Circle(COIN_RADIUS / SCALE), {
         isSensor: true,
-        label: 'coin',
-        render: { fillStyle: COLORS.coin },
-      })
-    );
+      });
+      body.setUserData({ label: 'coin' });
+      return body;
+    });
 
-    // Fuel can bodies (sensors)
-    const fuelBodies = chunk.fuelCans.map((f) =>
-      Matter.Bodies.rectangle(f.x, f.y, 20, 25, {
-        isStatic: true,
+    // Fuel cans (sensors)
+    const fuelBodies = chunk.fuelCans.map((f) => {
+      const body = this.world.createBody({
+        type: 'static',
+        position: planck.Vec2(f.x / SCALE, f.y / SCALE),
+      });
+      body.createFixture(planck.Box(10 / SCALE, 12.5 / SCALE), {
         isSensor: true,
-        label: 'fuel',
-        render: { fillStyle: COLORS.fuel },
-      })
-    );
+      });
+      body.setUserData({ label: 'fuel' });
+      return body;
+    });
 
     // Checkpoint sensor
-    let checkpointSensor: Matter.Body | null = null;
+    let checkpointSensor: planck.Body | null = null;
     if (chunk.hasCheckpoint) {
       const midX = (chunk.startX + chunk.endX) / 2;
       const midIdx = Math.floor(pts.length / 2);
       const midY = pts[midIdx].y;
-      checkpointSensor = Matter.Bodies.rectangle(midX, midY - 50, 10, 100, {
-        isStatic: true,
-        isSensor: true,
-        label: 'checkpoint',
+      checkpointSensor = this.world.createBody({
+        type: 'static',
+        position: planck.Vec2(midX / SCALE, (midY - 50) / SCALE),
       });
+      checkpointSensor.createFixture(planck.Box(5 / SCALE, 50 / SCALE), {
+        isSensor: true,
+      });
+      checkpointSensor.setUserData({ label: 'checkpoint' });
     }
 
-    const allBodies = [
-      ...bodies, ...coinBodies, ...fuelBodies,
-      ...(checkpointSensor ? [checkpointSensor] : []),
-    ];
-    Matter.Composite.add(this.world, allBodies);
-
-    const physChunk: PhysicsChunk = {
-      chunk,
-      bodies,
-      coinBodies,
-      fuelBodies,
-      checkpointSensor,
-    };
-
-    this.chunks.push(physChunk);
+    this.chunks.push({ chunk, bodies, coinBodies, fuelBodies, checkpointSensor });
     this.lastEndY = pts[pts.length - 1].y;
     this.nextIndex++;
   }
 
-  removeCoin(body: Matter.Body) {
+  removeCoin(body: planck.Body) {
     for (const pc of this.chunks) {
       const idx = pc.coinBodies.indexOf(body);
       if (idx >= 0) {
         pc.coinBodies.splice(idx, 1);
         pc.chunk.coins.splice(idx, 1);
-        Matter.Composite.remove(this.world, body);
+        this.world.destroyBody(body);
         return;
       }
     }
   }
 
-  removeFuel(body: Matter.Body) {
+  removeFuel(body: planck.Body) {
     for (const pc of this.chunks) {
       const idx = pc.fuelBodies.indexOf(body);
       if (idx >= 0) {
         pc.fuelBodies.splice(idx, 1);
         pc.chunk.fuelCans.splice(idx, 1);
-        Matter.Composite.remove(this.world, body);
+        this.world.destroyBody(body);
         return;
       }
     }
@@ -164,22 +157,18 @@ export class TerrainManager {
       const chunk = pc.chunk;
       if (chunk.endX < visibleLeft || chunk.startX > visibleRight) continue;
 
-      // Draw filled ground
       const pts = chunk.points;
       ctx.beginPath();
       ctx.moveTo(pts[0].x, pts[0].y);
       for (let i = 1; i < pts.length; i++) {
         ctx.lineTo(pts[i].x, pts[i].y);
       }
-      // Close by going down and back
       ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y + 200);
       ctx.lineTo(pts[0].x, pts[0].y + 200);
       ctx.closePath();
-
       ctx.fillStyle = COLORS[chunk.groundType] ?? COLORS.grass;
       ctx.fill();
 
-      // Ground surface line
       ctx.beginPath();
       ctx.moveTo(pts[0].x, pts[0].y);
       for (let i = 1; i < pts.length; i++) {
@@ -189,30 +178,21 @@ export class TerrainManager {
       ctx.lineWidth = 3;
       ctx.stroke();
 
-      // Draw decorations
       for (const dec of chunk.decorations) {
         this.drawDecoration(ctx, dec);
       }
-
-      // Draw coins
       for (const coin of chunk.coins) {
         this.drawCoin(ctx, coin);
       }
-
-      // Draw fuel cans
       for (const fuel of chunk.fuelCans) {
         this.drawFuelCan(ctx, fuel);
       }
-
-      // Draw checkpoint
       if (chunk.hasCheckpoint) {
         const midX = (chunk.startX + chunk.endX) / 2;
         const midIdx = Math.floor(pts.length / 2);
         const midY = pts[midIdx].y;
         this.drawCheckpoint(ctx, midX, midY);
       }
-
-      // Draw warning sign
       if (chunk.warningSign) {
         this.drawWarning(ctx, chunk.warningSign);
       }
@@ -222,7 +202,6 @@ export class TerrainManager {
   private drawCoin(ctx: CanvasRenderingContext2D, p: TerrainPoint) {
     ctx.save();
     ctx.translate(p.x, p.y);
-
     ctx.beginPath();
     ctx.arc(0, 0, COIN_RADIUS, 0, Math.PI * 2);
     ctx.fillStyle = COLORS.coin;
@@ -230,7 +209,6 @@ export class TerrainManager {
     ctx.strokeStyle = '#DAA520';
     ctx.lineWidth = 2;
     ctx.stroke();
-
     ctx.fillStyle = '#B8860B';
     ctx.font = 'bold 14px sans-serif';
     ctx.textAlign = 'center';
@@ -242,34 +220,26 @@ export class TerrainManager {
   private drawFuelCan(ctx: CanvasRenderingContext2D, p: TerrainPoint) {
     ctx.save();
     ctx.translate(p.x, p.y);
-
-    // Can body
     ctx.fillStyle = '#00AA00';
     ctx.fillRect(-10, -12, 20, 25);
     ctx.strokeStyle = '#006600';
     ctx.lineWidth = 2;
     ctx.strokeRect(-10, -12, 20, 25);
-
-    // Label
     ctx.fillStyle = '#FFF';
     ctx.font = 'bold 10px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('F', 0, 1);
-
     ctx.restore();
   }
 
   private drawCheckpoint(ctx: CanvasRenderingContext2D, x: number, y: number) {
-    // Flag pole
     ctx.beginPath();
     ctx.moveTo(x, y);
     ctx.lineTo(x, y - 80);
     ctx.strokeStyle = '#888';
     ctx.lineWidth = 3;
     ctx.stroke();
-
-    // Flag
     ctx.beginPath();
     ctx.moveTo(x, y - 80);
     ctx.lineTo(x + 30, y - 70);
@@ -277,8 +247,6 @@ export class TerrainManager {
     ctx.closePath();
     ctx.fillStyle = COLORS.checkpoint;
     ctx.fill();
-
-    // Checkered pattern on flag
     ctx.fillStyle = '#FFF';
     ctx.fillRect(x + 2, y - 78, 8, 6);
     ctx.fillRect(x + 14, y - 78, 8, 6);
@@ -288,12 +256,8 @@ export class TerrainManager {
   private drawWarning(ctx: CanvasRenderingContext2D, p: TerrainPoint) {
     ctx.save();
     ctx.translate(p.x, p.y);
-
-    // Post
     ctx.fillStyle = '#888';
     ctx.fillRect(-3, 0, 6, 40);
-
-    // Sign
     ctx.beginPath();
     ctx.moveTo(0, -20);
     ctx.lineTo(18, 10);
@@ -304,42 +268,33 @@ export class TerrainManager {
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2;
     ctx.stroke();
-
-    // Exclamation
     ctx.fillStyle = '#000';
     ctx.font = 'bold 16px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('!', 0, 2);
-
     ctx.restore();
   }
 
   private drawDecoration(ctx: CanvasRenderingContext2D, dec: Decoration) {
     ctx.save();
     ctx.translate(dec.x, dec.y);
-
     switch (dec.type) {
-      case 'tree': {
-        // Trunk
+      case 'tree':
         ctx.fillStyle = '#8B4513';
         ctx.fillRect(-4, -35, 8, 35);
-        // Foliage
         ctx.beginPath();
         ctx.arc(0, -45, 18, 0, Math.PI * 2);
         ctx.fillStyle = '#228B22';
         ctx.fill();
         break;
-      }
-      case 'flower': {
-        // Stem
+      case 'flower':
         ctx.strokeStyle = '#228B22';
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.lineTo(0, -15);
         ctx.stroke();
-        // Petals
         ctx.beginPath();
         ctx.arc(0, -18, 5, 0, Math.PI * 2);
         ctx.fillStyle = '#FF69B4';
@@ -349,8 +304,7 @@ export class TerrainManager {
         ctx.fillStyle = '#FFD700';
         ctx.fill();
         break;
-      }
-      case 'rock': {
+      case 'rock':
         ctx.beginPath();
         ctx.ellipse(0, -6, 12, 8, 0, 0, Math.PI * 2);
         ctx.fillStyle = '#999';
@@ -359,16 +313,13 @@ export class TerrainManager {
         ctx.lineWidth = 1;
         ctx.stroke();
         break;
-      }
-      case 'bush': {
+      case 'bush':
         ctx.beginPath();
         ctx.ellipse(0, -8, 15, 10, 0, 0, Math.PI * 2);
         ctx.fillStyle = '#2E7D32';
         ctx.fill();
         break;
-      }
     }
-
     ctx.restore();
   }
 
