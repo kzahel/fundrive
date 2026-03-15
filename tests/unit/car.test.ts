@@ -17,7 +17,7 @@ describe('Car', () => {
     const bodies = Matter.Composite.allBodies(car.composite);
     expect(bodies.length).toBe(4); // chassis, front wheel, rear wheel, driver
     const constraints = Matter.Composite.allConstraints(car.composite);
-    // front spring, rear spring, front strut, rear strut, driver
+    // 4 A-arm springs (2 per wheel) + driver constraint
     expect(constraints.length).toBe(5);
   });
 
