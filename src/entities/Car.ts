@@ -96,9 +96,9 @@ export class Car {
     // on the chassis but both connecting to the wheel center.
     // This forms a V-shape that prevents lateral swing while allowing
     // vertical travel along the suspension axis.
-    const guideSpread = 12; // horizontal offset from wheel centerline
-    const guideStiffness = 0.6;
-    const guideDamping = 0.05;
+    const guideSpread = 14; // horizontal offset from wheel centerline
+    const guideStiffness = 0.15; // soft enough to let springs compress
+    const guideDamping = 0.02;
 
     const frontWheelX = hw * 0.7;
     const rearWheelX = -hw * 0.7;
